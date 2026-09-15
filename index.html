@@ -64,7 +64,7 @@
   }
 
   .note-card{
-    position:relative; border-radius:6px; padding:16px 16px 44px;
+    position:relative; border-radius:6px; padding:30px 16px 44px;
     min-height:180px; box-shadow:var(--shadow);
     display:flex; flex-direction:column;
     transform:rotate(var(--rot, 0deg));
@@ -104,9 +104,12 @@
   .icon-btn:focus-visible{ outline:2px solid rgba(36,28,20,.5); outline-offset:1px; }
 
   .floating-badge{
-    position:absolute; top:10px; right:10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    position:absolute; top:8px; right:10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
     background:rgba(36,28,20,.14); color:#241C14; padding:3px 7px; border-radius:99px;
     display:flex; align-items:center; gap:4px;
+  }
+  .time-badge{
+    position:absolute; top:11px; left:16px; font-size:10.5px; color:rgba(36,28,20,.42);
   }
 
   .add-tile{
@@ -214,7 +217,7 @@
   }
 
   function addNote(){
-    var n = { id: genId(), color: COLORS[Math.floor(Math.random()*COLORS.length)].key, text: '', rot: (Math.random()*6-3).toFixed(1) };
+    var n = { id: genId(), color: COLORS[Math.floor(Math.random()*COLORS.length)].key, text: '', rot: (Math.random()*6-3).toFixed(1), updatedAt: null };
     notes.push(n);
     save();
     render();
@@ -241,6 +244,7 @@
     var n = notes.find(function(n){ return n.id === id; });
     if (!n) return;
     n.text = text;
+    n.updatedAt = text.trim() ? Date.now() : null;
     save();
     var pipTextarea = pipWindows[id] && pipWindows[id]._textarea;
     if (pipTextarea && pipTextarea.value !== text) pipTextarea.value = text;
@@ -279,9 +283,12 @@
       var style = pipWin.document.createElement('style');
       style.textContent =
         'html,body{margin:0;height:100%;}' +
-        'body{background:' + colorHex(note.color) + ';font-family:"Kalam",cursive;display:flex;}' +
-        'textarea{flex:1;border:none;outline:none;background:transparent;resize:none;' +
-        'font-family:inherit;font-size:16px;line-height:1.45;color:#241C14;padding:16px;box-sizing:border-box;}';
+        'body{background:' + colorHex(note.color) + ';font-family:"Kalam",cursive;display:flex;flex-direction:column;box-sizing:border-box;}' +
+        'textarea{flex:1;width:100%;border:none;outline:none;background:transparent;resize:none;' +
+        'font-family:inherit;font-size:16px;line-height:1.45;color:#241C14;padding:14px 14px 4px;box-sizing:border-box;}' +
+        '.dots{display:flex;gap:6px;padding:8px 14px 12px;}' +
+        '.dot{width:14px;height:14px;border-radius:50%;border:1.5px solid rgba(0,0,0,.18);cursor:pointer;padding:0;}' +
+        '.dot.active{box-shadow:0 0 0 2px rgba(36,28,20,.5);}';
       pipWin.document.head.appendChild(style);
 
       var linkEl = pipWin.document.createElement('link');
@@ -297,6 +304,25 @@
       pipWin._textarea = textarea;
       textarea.focus();
 
+      var dotsRow = pipWin.document.createElement('div');
+      dotsRow.className = 'dots';
+      COLORS.forEach(function(c){
+        var dot = pipWin.document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'dot' + (c.key === note.color ? ' active' : '');
+        dot.style.background = c.hex;
+        dot.setAttribute('aria-label', c.key);
+        dot.addEventListener('click', function(){
+          updateNoteColor(note.id, c.key);
+          pipWin.document.body.style.background = c.hex;
+          Array.prototype.forEach.call(dotsRow.children, function(d){ d.classList.remove('active'); });
+          dot.classList.add('active');
+        });
+        dotsRow.appendChild(dot);
+      });
+      pipWin.document.body.appendChild(dotsRow);
+      pipWin._dotsRow = dotsRow;
+
       pipWin.addEventListener('pagehide', function(){
         delete pipWindows[note.id];
         render();
@@ -311,8 +337,10 @@
   function render(){
     var html = notes.map(function(n){
       var floating = !!pipWindows[n.id];
+      var ago = timeAgo(n.updatedAt);
       return (
         '<div class="note-card" data-id="' + n.id + '" style="--rot:' + n.rot + 'deg; background:' + colorHex(n.color) + ';">' +
+          (ago ? '<div class="time-badge">' + ago + '</div>' : '') +
           (floating ? '<div class="floating-badge">📌 floating</div>' : '') +
           '<textarea class="note-text" placeholder="Type here…">' + escapeHtml(n.text) + '</textarea>' +
           '<div class="note-footer">' +
@@ -354,6 +382,17 @@
   function trashIcon(){
     return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16z"/></svg>';
   }
+  function timeAgo(ts){
+    if (!ts) return null;
+    var mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return 'edited just now';
+    if (mins < 60) return 'edited ' + mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return 'edited ' + hrs + 'h ago';
+    var days = Math.round(hrs / 24);
+    return 'edited ' + days + 'd ago';
+  }
+
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
   }
