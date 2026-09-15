@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pinned — Sticky Notes</title>
 <meta name="description" content="Sticky notes for your desk. Float any note into its own always-on-top window with a tap.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='80'>📌</text></svg>">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <style>
   :root{
@@ -77,7 +78,7 @@
   }
 
   .note-text{
-    flex:1; width:100%; resize:none; border:none; background:transparent; outline:none;
+    flex:none; width:100%; min-height:70px; resize:none; overflow:hidden; border:none; background:transparent; outline:none;
     font-family:"Kalam", cursive; font-size:16.5px; line-height:1.45; color:#241C14;
   }
   .note-text::placeholder{ color:rgba(36,28,20,.4); }
@@ -92,7 +93,7 @@
   }
   .color-dot.active{ box-shadow:0 0 0 2px rgba(36,28,20,.5); }
 
-  .note-actions{ display:flex; gap:4px; opacity:0; transition:opacity .12s; }
+  .note-actions{ display:flex; gap:4px; opacity:.55; transition:opacity .12s; }
   .note-card:hover .note-actions, .note-card:focus-within .note-actions{ opacity:1; }
   .icon-btn{
     width:26px; height:26px; border-radius:50%; border:none; cursor:pointer;
@@ -116,14 +117,21 @@
   .add-tile:hover{ border-color:var(--accent); color:var(--accent); }
   .add-tile:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
   .add-tile .plus{ font-family:"Kalam", cursive; font-size:34px; line-height:1; }
+  .add-tile .kbd-hint{ font-size:11px; font-weight:500; color:var(--ink-faint); }
 
   .toast{
     position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(0); opacity:1;
     background:var(--surface); color:var(--ink); border:1px solid var(--line); box-shadow:var(--shadow);
-    border-radius:12px; padding:12px 18px; font-size:13.5px; max-width:min(360px, calc(100vw - 40px));
+    border-radius:12px; padding:10px 10px 10px 18px; font-size:13.5px; max-width:min(360px, calc(100vw - 40px));
     text-align:center; transition:opacity .25s, transform .25s; z-index:50;
+    display:flex; align-items:center; gap:10px; justify-content:center;
   }
   .toast.hide{ opacity:0; transform:translateX(-50%) translateY(10px); pointer-events:none; }
+  .toast-action{
+    font-family:"Work Sans", sans-serif; font-weight:700; font-size:12.5px; color:var(--accent-ink);
+    background:var(--accent); border:none; border-radius:8px; padding:7px 12px; cursor:pointer; white-space:nowrap;
+  }
+  .toast-action:hover{ filter:brightness(1.05); }
 
   .empty-hint{ text-align:center; color:var(--ink-faint); font-size:13px; padding:40px 10px; grid-column:1/-1; }
 
@@ -142,13 +150,18 @@
   <div class="board" id="board"></div>
 </div>
 
-<div class="toast hide" id="toast"></div>
+<div class="toast hide" id="toast">
+  <span id="toastMsg"></span>
+  <button type="button" class="toast-action" id="toastAction" hidden></button>
+</div>
 
 <script>
 (function(){
   var board = document.getElementById('board');
   var supportNote = document.getElementById('supportNote');
   var toastEl = document.getElementById('toast');
+  var toastMsgEl = document.getElementById('toastMsg');
+  var toastActionEl = document.getElementById('toastAction');
 
   var SAVE_KEY = 'pinned_notes_v1';
   var COLORS = [
@@ -185,11 +198,19 @@
   }
   function genId(){ return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 
-  function showToast(msg){
-    toastEl.textContent = msg;
+  function showToast(msg, actionLabel, onAction){
+    toastMsgEl.textContent = msg;
     toastEl.classList.remove('hide');
+    if (actionLabel){
+      toastActionEl.textContent = actionLabel;
+      toastActionEl.hidden = false;
+      toastActionEl.onclick = function(){ onAction(); toastEl.classList.add('hide'); };
+    } else {
+      toastActionEl.hidden = true;
+      toastActionEl.onclick = null;
+    }
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(function(){ toastEl.classList.add('hide'); }, 3600);
+    showToast._t = setTimeout(function(){ toastEl.classList.add('hide'); }, actionLabel ? 5000 : 3600);
   }
 
   function addNote(){
@@ -202,10 +223,18 @@
   }
 
   function removeNote(id){
+    var idx = notes.findIndex(function(n){ return n.id === id; });
+    if (idx === -1) return;
+    var removed = notes[idx];
     if (pipWindows[id]){ try{ pipWindows[id].close(); }catch(e){} delete pipWindows[id]; }
-    notes = notes.filter(function(n){ return n.id !== id; });
+    notes.splice(idx, 1);
     save();
     render();
+    showToast('Note deleted.', 'Undo', function(){
+      notes.splice(Math.min(idx, notes.length), 0, removed);
+      save();
+      render();
+    });
   }
 
   function updateNoteText(id, text){
@@ -301,12 +330,14 @@
       );
     }).join('');
 
-    board.innerHTML = html + '<button type="button" class="add-tile" id="addTile"><span class="plus">+</span>New note</button>';
+    board.innerHTML = html + '<button type="button" class="add-tile" id="addTile"><span class="plus">+</span>New note<span class="kbd-hint">or press N</span></button>';
 
     Array.prototype.forEach.call(board.querySelectorAll('.note-card'), function(card){
       var id = card.getAttribute('data-id');
       var note = notes.find(function(n){ return n.id === id; });
-      card.querySelector('.note-text').addEventListener('input', function(e){ updateNoteText(id, e.target.value); });
+      var textarea = card.querySelector('.note-text');
+      autoGrow(textarea);
+      textarea.addEventListener('input', function(e){ updateNoteText(id, e.target.value); autoGrow(textarea); });
       Array.prototype.forEach.call(card.querySelectorAll('.color-dot'), function(dot){
         dot.addEventListener('click', function(){ updateNoteColor(id, dot.getAttribute('data-color')); });
       });
@@ -326,6 +357,20 @@
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
   }
+
+  function autoGrow(el){
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+
+  document.addEventListener('keydown', function(e){
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+    if (e.key === 'n' || e.key === 'N'){
+      e.preventDefault();
+      addNote();
+    }
+  });
 
   load();
   render();
