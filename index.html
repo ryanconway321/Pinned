@@ -74,7 +74,7 @@
   .note-card.dragging{
     cursor:grabbing; box-shadow:0 6px 14px rgba(36,28,20,.2), 0 32px 54px -18px rgba(36,28,20,.6);
   }
-  .note-card.settling{ transition:transform .38s cubic-bezier(.34,1.56,.64,1), box-shadow .2s; }
+  .note-card.settling{ transition:transform .38s cubic-bezier(.34,1.56,.64,1), opacity .35s ease, box-shadow .2s; }
   .note-card.crumpling{ animation:crumple .42s ease-in forwards; pointer-events:none; }
   @keyframes crumple{
     0%{ transform:rotate(var(--rot, 0deg)) scale(1) translate(0,0); opacity:1; border-radius:6px; }
@@ -155,6 +155,37 @@
     .note-card, .toast{ transition:none; }
     .note-card.crumpling{ animation:none; opacity:0; }
   }
+
+  body.custom-cursor, body.custom-cursor *{ cursor:none !important; }
+  body.custom-cursor .note-text{ cursor:text !important; }
+
+  .cursor-dot{
+    position:fixed; top:0; left:0; width:6px; height:6px; margin:-3px 0 0 -3px;
+    background:var(--accent); border-radius:50%; pointer-events:none; z-index:9999;
+    opacity:0; transition:opacity .15s;
+  }
+  .cursor-ring{
+    position:fixed; top:0; left:0; width:32px; height:32px; margin:-16px 0 0 -16px;
+    border:2px solid var(--accent); border-radius:50%; pointer-events:none; z-index:9998;
+    opacity:0; box-sizing:border-box;
+    transition:width .18s, height .18s, margin .18s, border-color .18s, box-shadow .18s, opacity .15s;
+  }
+  .cursor-ring::before, .cursor-ring::after{
+    content:""; position:absolute; top:50%; width:9px; height:2.5px; background:var(--accent); border-radius:2px;
+    transition:transform .18s;
+  }
+  .cursor-ring::before{ left:-9px; transform-origin:right center; transform:translateY(-50%) rotate(0deg); }
+  .cursor-ring::after{ right:-9px; transform-origin:left center; transform:translateY(-50%) rotate(0deg); }
+  .cursor-ring.near{ box-shadow:0 0 0 5px var(--accent-soft); }
+  .cursor-ring.grab{
+    width:24px; height:24px; margin:-12px 0 0 -12px; border-color:var(--ink); background:var(--accent-soft);
+  }
+  .cursor-ring.grab::before{ transform:translateY(-50%) rotate(52deg) translateX(3px); background:var(--ink); }
+  .cursor-ring.grab::after{ transform:translateY(-50%) rotate(-52deg) translateX(-3px); background:var(--ink); }
+
+  @media (prefers-reduced-motion: reduce){
+    .cursor-ring{ transition:opacity .15s; }
+  }
 </style>
 </head>
 <body>
@@ -203,6 +234,7 @@
   var notes = [];
   var pipWindows = {}; // noteId -> pip window ref
   var zCounter = 10;
+  var enteredIds = new Set(); // notes that have already played their arrival animation this visit
 
   function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
 
@@ -400,6 +432,19 @@
     }
   }
 
+  function playArrival(card, note, delay){
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) return;
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(-70px) rotate(' + (Number(note.rot) * 4) + 'deg) scale(.7)';
+    setTimeout(function(){
+      card.classList.add('settling');
+      card.style.opacity = '1';
+      card.style.transform = 'rotate(' + note.rot + 'deg)';
+      setTimeout(function(){ card.classList.remove('settling'); }, 420);
+    }, delay);
+  }
+
   function bumpZ(note, card){
     zCounter++;
     note.z = zCounter;
@@ -504,6 +549,7 @@
 
     board.innerHTML = html;
 
+    var enterIndex = 0;
     Array.prototype.forEach.call(board.querySelectorAll('.note-card'), function(card){
       var id = card.getAttribute('data-id');
       var note = notes.find(function(n){ return n.id === id; });
@@ -517,6 +563,11 @@
       card.querySelector('.float-btn').addEventListener('click', function(){ floatNote(note); });
       card.querySelector('.remove-btn').addEventListener('click', function(){ playDeleteAnimation(card, id); });
       makeDraggable(card, note);
+      if (!enteredIds.has(id)){
+        enteredIds.add(id);
+        playArrival(card, note, enterIndex * 70);
+        enterIndex++;
+      }
     });
 
     growBoard();
@@ -559,6 +610,53 @@
     }
   });
 
+  function initCursor(){
+    var finePointer = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+    if (!finePointer) return;
+
+    document.body.classList.add('custom-cursor');
+    var dot = document.createElement('div'); dot.className = 'cursor-dot';
+    var ring = document.createElement('div'); ring.className = 'cursor-ring';
+    document.body.appendChild(dot);
+    document.body.appendChild(ring);
+
+    var mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+    var ringX = mouseX, ringY = mouseY;
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var visible = false;
+
+    document.addEventListener('pointermove', function(e){
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      mouseX = e.clientX; mouseY = e.clientY;
+      dot.style.transform = 'translate(' + mouseX + 'px,' + mouseY + 'px)';
+      if (!visible){ visible = true; dot.style.opacity = '1'; ring.style.opacity = '1'; }
+      var el = document.elementFromPoint(mouseX, mouseY);
+      var grabbable = el && el.closest && el.closest('.note-card, .add-fab') &&
+        !el.closest('textarea, .color-dot, .icon-btn');
+      ring.classList.toggle('near', !!grabbable);
+    });
+
+    document.addEventListener('pointerdown', function(e){
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      var draggableHit = e.target && e.target.closest && e.target.closest('.note-card') &&
+        !e.target.closest('textarea, .color-dot, .icon-btn');
+      if (draggableHit) ring.classList.add('grab');
+    });
+    document.addEventListener('pointerup', function(){ ring.classList.remove('grab'); });
+
+    document.addEventListener('mouseleave', function(){ dot.style.opacity = '0'; ring.style.opacity = '0'; });
+
+    function raf(){
+      var ease = reduceMotion ? 1 : 0.2;
+      ringX += (mouseX - ringX) * ease;
+      ringY += (mouseY - ringY) * ease;
+      ring.style.transform = 'translate(' + ringX + 'px,' + ringY + 'px)';
+      requestAnimationFrame(raf);
+    }
+    raf();
+  }
+
+  initCursor();
   load();
   render();
 })();
