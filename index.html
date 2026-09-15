@@ -71,6 +71,12 @@
     transition:transform .15s;
   }
   .note-card:hover{ transform:rotate(0deg) scale(1.02); z-index:2; }
+  .note-card.crumpling{ animation:crumple .42s ease-in forwards; pointer-events:none; z-index:3; }
+  @keyframes crumple{
+    0%{ transform:rotate(var(--rot, 0deg)) scale(1) translate(0,0); opacity:1; border-radius:6px; }
+    35%{ transform:rotate(calc(var(--rot, 0deg) + 60deg)) scale(.82) translate(4px,-6px); border-radius:38%; }
+    100%{ transform:rotate(calc(var(--rot, 0deg) + 260deg)) scale(.18) translate(60px,140px); opacity:0; border-radius:50%; }
+  }
   .note-card::before{
     content:""; position:absolute; top:-8px; left:50%; transform:translateX(-50%);
     width:22px; height:14px; border-radius:3px;
@@ -138,7 +144,10 @@
 
   .empty-hint{ text-align:center; color:var(--ink-faint); font-size:13px; padding:40px 10px; grid-column:1/-1; }
 
-  @media (prefers-reduced-motion: reduce){ .note-card, .toast{ transition:none; } }
+  @media (prefers-reduced-motion: reduce){
+    .note-card, .toast{ transition:none; }
+    .note-card.crumpling{ animation:none; opacity:0; }
+  }
 </style>
 </head>
 <body>
@@ -148,7 +157,7 @@
     <div class="brand"><span class="pin-mark"></span><h1>Pinned</h1></div>
     <div class="support-note" id="supportNote"></div>
   </header>
-  <p class="sub">Sticky notes for your desk. Tap "Float" to pop one into its own little window that stays on top of everything else — a real floating note, not just another tab.</p>
+  <p class="sub">Quick notes, right where you'd stick them — no account, nothing to install. On Chrome or Edge, you can even pop one into its own window that floats on top of everything else.</p>
 
   <div class="board" id="board"></div>
 </div>
@@ -191,8 +200,9 @@
     }catch(e){ notes = null; }
     if (!notes || !notes.length){
       notes = [
-        { id: genId(), color: 'yellow', text: 'Welcome to Pinned — type on me, or make a new note below.', rot: -2 },
-        { id: genId(), color: 'pink', text: 'Tap "Float" to pop a note into its own always-on-top window.', rot: 1.5 }
+        { id: genId(), color: 'yellow', text: 'Welcome to Pinned — click any note to edit it, or make a new one below.', rot: -2 },
+        { id: genId(), color: 'blue', text: 'Pick up milk\nCall the dentist\nReturn the package', rot: 1.5 },
+        { id: genId(), color: 'pink', text: "Someone's birthday is next week 🎂", rot: -1 }
       ];
     }
   }
@@ -223,6 +233,13 @@
     render();
     var el = board.querySelector('[data-id="' + n.id + '"] .note-text');
     if (el) el.focus();
+  }
+
+  function playDeleteAnimation(card, id){
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion){ removeNote(id); return; }
+    card.classList.add('crumpling');
+    setTimeout(function(){ removeNote(id); }, 420);
   }
 
   function removeNote(id){
@@ -370,7 +387,7 @@
         dot.addEventListener('click', function(){ updateNoteColor(id, dot.getAttribute('data-color')); });
       });
       card.querySelector('.float-btn').addEventListener('click', function(){ floatNote(note); });
-      card.querySelector('.remove-btn').addEventListener('click', function(){ removeNote(id); });
+      card.querySelector('.remove-btn').addEventListener('click', function(){ playDeleteAnimation(card, id); });
     });
 
     document.getElementById('addTile').addEventListener('click', addNote);
