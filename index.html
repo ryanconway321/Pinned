@@ -204,6 +204,31 @@
     width:100%; border:none; background:transparent; outline:none; resize:none; overflow:hidden;
     font-family:"Work Sans", sans-serif; font-size:13.5px; line-height:1.45; color:var(--ink); cursor:text;
   }
+  .k-card-reminder{ display:flex; align-items:center; gap:6px; margin:2px 0 8px; }
+  .k-card-reminder.editing{ margin:2px 0 8px; }
+  .k-reminder-add{
+    font-family:"Work Sans", sans-serif; font-size:11px; font-weight:600; color:var(--ink-faint);
+    background:transparent; border:1px dashed var(--line-strong); border-radius:99px;
+    padding:4px 9px; cursor:pointer;
+  }
+  .k-reminder-add:hover{ border-color:var(--accent); color:var(--accent); }
+  .k-due-badge{
+    display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700;
+    border-radius:99px; padding:4px 9px; border:none; cursor:pointer;
+    background:var(--surface-2); color:var(--ink-soft);
+  }
+  .k-due-badge.soon{ background:#FCE7B8; color:#7A4E00; }
+  .k-due-badge.overdue{ background:#FBD5D0; color:#8C2A1E; }
+  .k-due-clear{
+    width:19px; height:19px; flex:0 0 auto; border-radius:50%; border:none;
+    background:rgba(0,0,0,.1); color:var(--ink-soft); cursor:pointer; font-size:10px; line-height:1;
+  }
+  .k-due-clear:hover{ background:rgba(0,0,0,.18); }
+  .k-due-input{
+    font-family:"Work Sans", sans-serif; font-size:12px; border:1px solid var(--line-strong); border-radius:6px;
+    padding:4px 6px; background:var(--surface); color:var(--ink); width:100%;
+  }
+
   .k-card-footer{ display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
   .k-card-footer .icon-btn{ width:22px; height:22px; opacity:.5; transition:opacity .12s; }
   .k-card:hover .k-card-footer .icon-btn, .k-card:focus-within .k-card-footer .icon-btn{ opacity:1; }
@@ -317,6 +342,8 @@
   var kanban = { columns: [] };
   var kDrag = null; // active cross-column card drag, or null
   var currentView = 'notes';
+  var reminderTimers = {}; // cardId -> setTimeout handle
+  var openingReminderFor = null; // cardId currently showing the date picker, or null
   var roomId = null;
   var roomRef = null;
   var kanbanSyncTimer = null;
@@ -802,8 +829,27 @@
   }
 
   function renderCard(c){
+    var dueHtml;
+    if (openingReminderFor === c.id){
+      var val = c.dueAt ? toDatetimeLocalValue(c.dueAt) : '';
+      dueHtml = '<div class="k-card-reminder editing">' +
+        '<input type="datetime-local" class="k-due-input" data-card-id="' + c.id + '" value="' + val + '">' +
+      '</div>';
+    } else if (c.dueAt){
+      var info = formatDue(c.dueAt);
+      dueHtml = '<div class="k-card-reminder">' +
+        '<button type="button" class="k-due-badge ' + info.cls + '" data-card-id="' + c.id + '" title="Change reminder">⏰ ' + info.label + '</button>' +
+        '<button type="button" class="k-due-clear" data-card-id="' + c.id + '" title="Remove reminder">✕</button>' +
+      '</div>';
+    } else {
+      dueHtml = '<div class="k-card-reminder">' +
+        '<button type="button" class="k-reminder-add" data-card-id="' + c.id + '">+ Add reminder</button>' +
+      '</div>';
+    }
+
     return '<div class="k-card" data-card-id="' + c.id + '" style="--kc:' + colorHex(c.color) + ';">' +
         '<textarea class="k-card-text" placeholder="Card text…">' + escapeHtml(c.text) + '</textarea>' +
+        dueHtml +
         '<div class="k-card-footer">' +
           '<div class="color-dots">' +
             COLORS.map(function(cc){
@@ -870,7 +916,97 @@
       });
     });
     card.querySelector('.k-card-del').addEventListener('click', function(){ deleteCard(id); });
+
+    var addBtn = card.querySelector('.k-reminder-add');
+    if (addBtn) addBtn.addEventListener('click', function(){ openReminderEditor(id); });
+    var badgeBtn = card.querySelector('.k-due-badge');
+    if (badgeBtn) badgeBtn.addEventListener('click', function(){ openReminderEditor(id); });
+    var clearBtn = card.querySelector('.k-due-clear');
+    if (clearBtn) clearBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var c = findCard(id);
+      if (c){ c.dueAt = null; saveKanban(); }
+      scheduleReminder(id);
+      renderKanban();
+    });
+    var dueInput = card.querySelector('.k-due-input');
+    if (dueInput){
+      dueInput.addEventListener('click', function(e){ e.stopPropagation(); });
+      dueInput.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+      dueInput.addEventListener('change', function(){
+        var c = findCard(id);
+        if (c){
+          c.dueAt = dueInput.value ? new Date(dueInput.value).getTime() : null;
+          saveKanban();
+          if (c.dueAt && window.Notification && Notification.permission === 'default'){
+            try{ Notification.requestPermission(); }catch(e){}
+          }
+          scheduleReminder(id);
+        }
+        openingReminderFor = null;
+        renderKanban();
+      });
+      dueInput.addEventListener('blur', function(){
+        setTimeout(function(){
+          if (openingReminderFor === id){ openingReminderFor = null; renderKanban(); }
+        }, 150);
+      });
+    }
+
     makeCardDraggable(card, id);
+    scheduleReminder(id);
+  }
+
+  function openReminderEditor(cardId){
+    openingReminderFor = cardId;
+    renderKanban();
+    var input = kanbanBoard.querySelector('.k-due-input[data-card-id="' + cardId + '"]');
+    if (input){ input.focus(); try{ input.showPicker && input.showPicker(); }catch(e){} }
+  }
+
+  function toDatetimeLocalValue(ts){
+    var d = new Date(ts);
+    var pad = function(n){ return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function formatDue(ts){
+    var now = Date.now();
+    var diff = ts - now;
+    var d = new Date(ts);
+    var nowD = new Date(now);
+    var timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    var dateLabel;
+    if (d.toDateString() === nowD.toDateString()){
+      dateLabel = 'today ' + timeStr;
+    } else {
+      var tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+      if (d.toDateString() === tomorrow.toDateString()){
+        dateLabel = 'tomorrow ' + timeStr;
+      } else {
+        dateLabel = d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr;
+      }
+    }
+    if (diff < 0) return { label: 'Overdue · ' + dateLabel, cls: 'overdue' };
+    if (diff < 24 * 60 * 60 * 1000) return { label: 'Due ' + dateLabel, cls: 'soon' };
+    return { label: 'Due ' + dateLabel, cls: '' };
+  }
+
+  function scheduleReminder(cardId){
+    if (reminderTimers[cardId]){ clearTimeout(reminderTimers[cardId]); delete reminderTimers[cardId]; }
+    var card = findCard(cardId);
+    if (!card || !card.dueAt) return;
+    var delay = card.dueAt - Date.now();
+    if (delay <= 0 || delay > 30 * 24 * 60 * 60 * 1000) return;
+    reminderTimers[cardId] = setTimeout(function(){
+      var c = findCard(cardId);
+      delete reminderTimers[cardId];
+      if (!c) return;
+      showToast('⏰ Reminder: ' + (c.text.trim() || 'Untitled card'));
+      if (window.Notification && Notification.permission === 'granted'){
+        try{ new Notification('Pinned reminder', { body: c.text.trim() || 'Untitled card' }); }catch(e){}
+      }
+    }, delay);
   }
 
   function makeCardDraggable(card, cardId){
@@ -878,7 +1014,7 @@
     var startX = 0, startY = 0;
 
     card.addEventListener('pointerdown', function(e){
-      if (e.target.closest && e.target.closest('textarea, .color-dot, .icon-btn')) return;
+      if (e.target.closest && e.target.closest('textarea, .color-dot, .icon-btn, .k-due-badge, .k-due-clear, .k-reminder-add, .k-due-input')) return;
       pointerId = e.pointerId; dragging = true; moved = false;
       startX = e.clientX; startY = e.clientY;
       try{ card.setPointerCapture(pointerId); }catch(err){}
