@@ -186,6 +186,65 @@
   @media (prefers-reduced-motion: reduce){
     .cursor-ring{ transition:opacity .15s; }
   }
+
+  .view-switch{ display:inline-flex; gap:4px; background:var(--surface-2); border-radius:10px; padding:4px; margin-bottom:18px; }
+  .view-tab{
+    font-family:"Work Sans", sans-serif; font-weight:600; font-size:13px; color:var(--ink-soft);
+    background:transparent; border:none; border-radius:7px; padding:8px 16px; cursor:pointer;
+  }
+  .view-tab.active{ background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+  .view-tab:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .view-section[hidden]{ display:none; }
+
+  .k-board{ display:flex; gap:14px; align-items:flex-start; overflow-x:auto; padding-bottom:12px; }
+  .k-column{
+    flex:0 0 260px; width:260px; background:var(--surface-2); border-radius:12px; padding:10px;
+    display:flex; flex-direction:column; gap:8px; max-height:70vh;
+  }
+  .k-col-header{ display:flex; align-items:center; gap:6px; padding:2px 2px 2px 6px; }
+  .k-col-title{
+    flex:1; min-width:0; font-family:"Work Sans", sans-serif; font-weight:700; font-size:14px; color:var(--ink);
+    background:transparent; border:none; outline:none; padding:4px 6px; border-radius:5px;
+  }
+  .k-col-title:focus{ background:var(--surface); box-shadow:0 0 0 2px var(--accent-soft); }
+  .k-col-count{
+    font-size:11px; font-weight:700; color:var(--ink-faint); background:var(--surface);
+    border-radius:99px; padding:2px 7px; flex:0 0 auto;
+  }
+  .k-col-del{ flex:0 0 auto; width:24px; height:24px; opacity:.5; }
+  .k-col-del:hover{ opacity:1; }
+  .k-cards{ display:flex; flex-direction:column; gap:8px; overflow-y:auto; min-height:6px; padding:2px; }
+  .k-card{
+    background:var(--surface); border-left:4px solid var(--kc, var(--accent)); border-radius:8px;
+    padding:9px 10px 8px; box-shadow:0 1px 2px rgba(36,28,20,.08);
+    cursor:grab; touch-action:none; user-select:none;
+  }
+  .k-card:hover{ box-shadow:0 3px 8px rgba(36,28,20,.16); }
+  .k-card.dragging-source{ opacity:.35; }
+  .k-card-text{
+    width:100%; border:none; background:transparent; outline:none; resize:none; overflow:hidden;
+    font-family:"Work Sans", sans-serif; font-size:13.5px; line-height:1.45; color:var(--ink); cursor:text;
+  }
+  .k-card-footer{ display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
+  .k-card-footer .icon-btn{ width:22px; height:22px; opacity:.5; transition:opacity .12s; }
+  .k-card:hover .k-card-footer .icon-btn, .k-card:focus-within .k-card-footer .icon-btn{ opacity:1; }
+  .k-add-card{
+    font-family:"Work Sans", sans-serif; font-weight:600; font-size:12.5px; color:var(--ink-faint);
+    background:transparent; border:none; border-radius:7px; padding:8px; text-align:left; cursor:pointer;
+  }
+  .k-add-card:hover{ background:var(--surface); color:var(--ink); }
+  .k-add-col{
+    flex:0 0 220px; align-self:flex-start; font-family:"Work Sans", sans-serif; font-weight:600; font-size:13.5px;
+    color:var(--ink-faint); background:transparent; border:2px dashed var(--line-strong); border-radius:12px;
+    padding:14px; cursor:pointer;
+  }
+  .k-add-col:hover{ border-color:var(--accent); color:var(--accent); }
+  .k-placeholder{ border:2px dashed var(--line-strong); border-radius:8px; background:rgba(0,0,0,.04); box-sizing:border-box; }
+  .k-card-ghost{
+    position:fixed; z-index:9999; pointer-events:none; opacity:.95; transform:rotate(-2deg);
+    box-shadow:0 14px 30px -10px rgba(0,0,0,.4); margin:0;
+  }
+  .k-cards.drop-target{ background:var(--accent-soft); border-radius:8px; }
 </style>
 </head>
 <body>
@@ -195,9 +254,21 @@
     <div class="brand"><span class="pin-mark"></span><h1>Pinned</h1></div>
     <div class="support-note" id="supportNote"></div>
   </header>
-  <p class="sub">Quick notes, right where you'd stick them — no account, nothing to install. Drag them around the board, and on Chrome or Edge you can pop one into its own window that floats on top of everything else.</p>
 
-  <div class="board" id="board"></div>
+  <div class="view-switch" role="tablist">
+    <button type="button" class="view-tab active" id="tabNotes" role="tab" aria-selected="true">🗒️ Notes</button>
+    <button type="button" class="view-tab" id="tabBoard" role="tab" aria-selected="false">📋 Board</button>
+  </div>
+
+  <section class="view-section" id="notesView">
+    <p class="sub">Quick notes, right where you'd stick them — no account, nothing to install. Drag them around the board, and on Chrome or Edge you can pop one into its own window that floats on top of everything else.</p>
+    <div class="board" id="board"></div>
+  </section>
+
+  <section class="view-section" id="boardView" hidden>
+    <p class="sub">A simple kanban board — add cards to a list, then drag them across as things move along.</p>
+    <div class="k-board" id="kanbanBoard"></div>
+  </section>
 </div>
 
 <button type="button" class="add-fab" id="addFab" aria-label="New note" title="New note (N)">+</button>
@@ -215,6 +286,11 @@
   var toastMsgEl = document.getElementById('toastMsg');
   var toastActionEl = document.getElementById('toastAction');
   var addFab = document.getElementById('addFab');
+  var tabNotes = document.getElementById('tabNotes');
+  var tabBoard = document.getElementById('tabBoard');
+  var notesView = document.getElementById('notesView');
+  var boardView = document.getElementById('boardView');
+  var kanbanBoard = document.getElementById('kanbanBoard');
 
   var SAVE_KEY = 'pinned_notes_v2';
   var COLORS = [
@@ -235,6 +311,11 @@
   var pipWindows = {}; // noteId -> pip window ref
   var zCounter = 10;
   var enteredIds = new Set(); // notes that have already played their arrival animation this visit
+
+  var KANBAN_KEY = 'pinned_kanban_v1';
+  var kanban = { columns: [] };
+  var kDrag = null; // active cross-column card drag, or null
+  var currentView = 'notes';
 
   function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
 
@@ -604,11 +685,315 @@
   document.addEventListener('keydown', function(e){
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT') return;
-    if (e.key === 'n' || e.key === 'N'){
+    if (currentView === 'notes' && (e.key === 'n' || e.key === 'N')){
       e.preventDefault();
       addNote();
     }
   });
+
+  // ---------- Kanban board ----------
+
+  function defaultKanban(){
+    return {
+      columns: [
+        { id: genId(), title: 'To Do', cards: [
+          { id: genId(), text: 'Sketch out the idea', color: 'blue' },
+          { id: genId(), text: 'Pick a name', color: 'yellow' }
+        ] },
+        { id: genId(), title: 'Doing', cards: [
+          { id: genId(), text: 'Build the first version', color: 'pink' }
+        ] },
+        { id: genId(), title: 'Done', cards: [
+          { id: genId(), text: 'Have the idea 🎉', color: 'green' }
+        ] }
+      ]
+    };
+  }
+
+  function loadKanban(){
+    try{
+      var raw = localStorage.getItem(KANBAN_KEY);
+      kanban = raw ? JSON.parse(raw) : null;
+    }catch(e){ kanban = null; }
+    if (!kanban || !kanban.columns || !kanban.columns.length){
+      kanban = defaultKanban();
+    }
+  }
+  function saveKanban(){
+    try{ localStorage.setItem(KANBAN_KEY, JSON.stringify(kanban)); }catch(e){}
+  }
+
+  function findColumn(colId){ return kanban.columns.find(function(c){ return c.id === colId; }); }
+  function findCardLocation(cardId){
+    for (var ci = 0; ci < kanban.columns.length; ci++){
+      var col = kanban.columns[ci];
+      for (var i = 0; i < col.cards.length; i++){
+        if (col.cards[i].id === cardId) return { col: col, index: i };
+      }
+    }
+    return null;
+  }
+  function findCard(cardId){
+    var loc = findCardLocation(cardId);
+    return loc ? loc.col.cards[loc.index] : null;
+  }
+
+  function addColumn(){
+    var col = { id: genId(), title: 'New list', cards: [] };
+    kanban.columns.push(col);
+    saveKanban();
+    renderKanban();
+    var input = kanbanBoard.querySelector('.k-col-title[data-col-id="' + col.id + '"]');
+    if (input){ input.focus(); input.select(); }
+  }
+
+  function deleteColumn(colId){
+    var idx = kanban.columns.findIndex(function(c){ return c.id === colId; });
+    if (idx === -1) return;
+    var removed = kanban.columns[idx];
+    kanban.columns.splice(idx, 1);
+    saveKanban();
+    renderKanban();
+    showToast('List "' + removed.title + '" deleted.', 'Undo', function(){
+      kanban.columns.splice(Math.min(idx, kanban.columns.length), 0, removed);
+      saveKanban();
+      renderKanban();
+    });
+  }
+
+  function addCard(colId){
+    var col = findColumn(colId);
+    if (!col) return;
+    var c = { id: genId(), text: '', color: COLORS[Math.floor(Math.random() * COLORS.length)].key };
+    col.cards.push(c);
+    saveKanban();
+    renderKanban();
+    var textarea = kanbanBoard.querySelector('.k-card[data-card-id="' + c.id + '"] .k-card-text');
+    if (textarea) textarea.focus();
+  }
+
+  function deleteCard(cardId){
+    var loc = findCardLocation(cardId);
+    if (!loc) return;
+    var removed = loc.col.cards[loc.index];
+    var colId = loc.col.id, idx = loc.index;
+    loc.col.cards.splice(idx, 1);
+    saveKanban();
+    renderKanban();
+    showToast('Card deleted.', 'Undo', function(){
+      var col = findColumn(colId);
+      if (col) col.cards.splice(Math.min(idx, col.cards.length), 0, removed);
+      saveKanban();
+      renderKanban();
+    });
+  }
+
+  function renderCard(c){
+    return '<div class="k-card" data-card-id="' + c.id + '" style="--kc:' + colorHex(c.color) + ';">' +
+        '<textarea class="k-card-text" placeholder="Card text…">' + escapeHtml(c.text) + '</textarea>' +
+        '<div class="k-card-footer">' +
+          '<div class="color-dots">' +
+            COLORS.map(function(cc){
+              return '<button type="button" class="color-dot' + (cc.key === c.color ? ' active' : '') + '" style="background:' + cc.hex + ';" data-color="' + cc.key + '" aria-label="' + cc.key + '"></button>';
+            }).join('') +
+          '</div>' +
+          '<button type="button" class="icon-btn k-card-del" aria-label="Delete card" title="Delete card">' + trashIcon() + '</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderColumn(col){
+    var cardsHtml = col.cards.map(renderCard).join('');
+    return '<div class="k-column" data-col-id="' + col.id + '">' +
+        '<div class="k-col-header">' +
+          '<input type="text" class="k-col-title" data-col-id="' + col.id + '" value="' + escapeHtml(col.title) + '" maxlength="40" aria-label="List name">' +
+          '<span class="k-col-count">' + col.cards.length + '</span>' +
+          '<button type="button" class="icon-btn k-col-del" data-col-id="' + col.id + '" aria-label="Delete list" title="Delete list">' + trashIcon() + '</button>' +
+        '</div>' +
+        '<div class="k-cards" data-col-id="' + col.id + '">' + cardsHtml + '</div>' +
+        '<button type="button" class="k-add-card" data-col-id="' + col.id + '">+ Add a card</button>' +
+      '</div>';
+  }
+
+  function renderKanban(){
+    var html = kanban.columns.map(renderColumn).join('') +
+      '<button type="button" class="k-add-col" id="kAddColBtn">+ Add another list</button>';
+    kanbanBoard.innerHTML = html;
+
+    var addColBtn = document.getElementById('kAddColBtn');
+    if (addColBtn) addColBtn.addEventListener('click', addColumn);
+
+    Array.prototype.forEach.call(kanbanBoard.querySelectorAll('.k-col-title'), function(input){
+      input.addEventListener('input', function(){
+        var col = findColumn(input.getAttribute('data-col-id'));
+        if (col){ col.title = input.value; saveKanban(); }
+      });
+    });
+    Array.prototype.forEach.call(kanbanBoard.querySelectorAll('.k-col-del'), function(btn){
+      btn.addEventListener('click', function(){ deleteColumn(btn.getAttribute('data-col-id')); });
+    });
+    Array.prototype.forEach.call(kanbanBoard.querySelectorAll('.k-add-card'), function(btn){
+      btn.addEventListener('click', function(){ addCard(btn.getAttribute('data-col-id')); });
+    });
+    Array.prototype.forEach.call(kanbanBoard.querySelectorAll('.k-card'), function(card){
+      wireCard(card);
+    });
+  }
+
+  function wireCard(card){
+    var id = card.getAttribute('data-card-id');
+    var textarea = card.querySelector('.k-card-text');
+    autoGrow(textarea);
+    textarea.addEventListener('input', function(e){
+      var c = findCard(id);
+      if (c){ c.text = e.target.value; saveKanban(); }
+      autoGrow(textarea);
+    });
+    textarea.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    Array.prototype.forEach.call(card.querySelectorAll('.color-dot'), function(dot){
+      dot.addEventListener('click', function(){
+        var c = findCard(id);
+        if (c){ c.color = dot.getAttribute('data-color'); saveKanban(); renderKanban(); }
+      });
+    });
+    card.querySelector('.k-card-del').addEventListener('click', function(){ deleteCard(id); });
+    makeCardDraggable(card, id);
+  }
+
+  function makeCardDraggable(card, cardId){
+    var pointerId = null, dragging = false, moved = false;
+    var startX = 0, startY = 0;
+
+    card.addEventListener('pointerdown', function(e){
+      if (e.target.closest && e.target.closest('textarea, .color-dot, .icon-btn')) return;
+      pointerId = e.pointerId; dragging = true; moved = false;
+      startX = e.clientX; startY = e.clientY;
+      try{ card.setPointerCapture(pointerId); }catch(err){}
+    });
+
+    card.addEventListener('pointermove', function(e){
+      if (!dragging) return;
+      var dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!moved){
+        if (Math.abs(dx) + Math.abs(dy) < 4) return;
+        moved = true;
+        startCardDrag(card, cardId, e);
+      }
+      updateCardDrag(e.clientX, e.clientY);
+    });
+
+    function endDrag(){
+      if (!dragging) return;
+      dragging = false;
+      try{ card.releasePointerCapture(pointerId); }catch(err){}
+      if (moved) finishCardDrag();
+      moved = false;
+    }
+    card.addEventListener('pointerup', endDrag);
+    card.addEventListener('pointercancel', endDrag);
+  }
+
+  function startCardDrag(cardEl, cardId, e){
+    var rect = cardEl.getBoundingClientRect();
+    var ghost = cardEl.cloneNode(true);
+    ghost.classList.add('k-card-ghost');
+    ghost.style.width = rect.width + 'px';
+    ghost.style.left = rect.left + 'px';
+    ghost.style.top = rect.top + 'px';
+    document.body.appendChild(ghost);
+
+    var placeholder = document.createElement('div');
+    placeholder.className = 'k-placeholder';
+    placeholder.style.height = rect.height + 'px';
+    cardEl.parentNode.insertBefore(placeholder, cardEl);
+    cardEl.classList.add('dragging-source');
+    cardEl.style.display = 'none';
+
+    kDrag = {
+      cardId: cardId, ghost: ghost, placeholder: placeholder,
+      offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top
+    };
+  }
+
+  function updateCardDrag(x, y){
+    if (!kDrag) return;
+    kDrag.ghost.style.left = (x - kDrag.offsetX) + 'px';
+    kDrag.ghost.style.top = (y - kDrag.offsetY) + 'px';
+
+    Array.prototype.forEach.call(kanbanBoard.querySelectorAll('.k-cards'), function(list){ list.classList.remove('drop-target'); });
+
+    var el = document.elementFromPoint(x, y);
+    var listEl = el && el.closest && el.closest('.k-cards');
+    if (!listEl) return;
+    listEl.classList.add('drop-target');
+
+    var siblings = Array.prototype.filter.call(listEl.children, function(ch){
+      return ch !== kDrag.placeholder && ch.classList.contains('k-card');
+    });
+    var insertBefore = null;
+    for (var i = 0; i < siblings.length; i++){
+      var r = siblings[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2){ insertBefore = siblings[i]; break; }
+    }
+    if (insertBefore){
+      listEl.insertBefore(kDrag.placeholder, insertBefore);
+    } else {
+      listEl.appendChild(kDrag.placeholder);
+    }
+  }
+
+  function finishCardDrag(){
+    if (!kDrag) return;
+    var placeholderEl = kDrag.placeholder;
+    var listEl = placeholderEl.parentNode;
+    var targetColId = listEl ? listEl.getAttribute('data-col-id') : null;
+
+    Array.prototype.forEach.call(kanbanBoard.querySelectorAll('.k-cards'), function(list){ list.classList.remove('drop-target'); });
+
+    if (targetColId){
+      var orderedEls = Array.prototype.filter.call(listEl.children, function(ch){
+        return ch.classList.contains('k-card') || ch === placeholderEl;
+      });
+      var targetIndex = orderedEls.indexOf(placeholderEl);
+      var loc = findCardLocation(kDrag.cardId);
+      if (loc){
+        var movedCard = loc.col.cards.splice(loc.index, 1)[0];
+        var targetCol = findColumn(targetColId);
+        if (targetCol){
+          targetIndex = clamp(targetIndex, 0, targetCol.cards.length);
+          targetCol.cards.splice(targetIndex, 0, movedCard);
+        } else {
+          loc.col.cards.splice(loc.index, 0, movedCard);
+        }
+        saveKanban();
+      }
+    }
+
+    if (kDrag.ghost && kDrag.ghost.parentNode) kDrag.ghost.parentNode.removeChild(kDrag.ghost);
+    if (kDrag.placeholder && kDrag.placeholder.parentNode) kDrag.placeholder.parentNode.removeChild(kDrag.placeholder);
+    kDrag = null;
+    renderKanban();
+  }
+
+  // ---------- View switching ----------
+
+  var VIEW_KEY = 'pinned_active_view';
+
+  function setView(view){
+    currentView = view === 'board' ? 'board' : 'notes';
+    var isBoard = currentView === 'board';
+    notesView.hidden = isBoard;
+    boardView.hidden = !isBoard;
+    tabNotes.classList.toggle('active', !isBoard);
+    tabBoard.classList.toggle('active', isBoard);
+    tabNotes.setAttribute('aria-selected', String(!isBoard));
+    tabBoard.setAttribute('aria-selected', String(isBoard));
+    addFab.hidden = isBoard;
+    try{ localStorage.setItem(VIEW_KEY, currentView); }catch(e){}
+  }
+
+  tabNotes.addEventListener('click', function(){ setView('notes'); });
+  tabBoard.addEventListener('click', function(){ setView('board'); });
 
   function initCursor(){
     var finePointer = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
@@ -631,14 +1016,14 @@
       dot.style.transform = 'translate(' + mouseX + 'px,' + mouseY + 'px)';
       if (!visible){ visible = true; dot.style.opacity = '1'; ring.style.opacity = '1'; }
       var el = document.elementFromPoint(mouseX, mouseY);
-      var grabbable = el && el.closest && el.closest('.note-card, .add-fab') &&
+      var grabbable = el && el.closest && el.closest('.note-card, .add-fab, .k-card') &&
         !el.closest('textarea, .color-dot, .icon-btn');
       ring.classList.toggle('near', !!grabbable);
     });
 
     document.addEventListener('pointerdown', function(e){
       if (e.pointerType && e.pointerType !== 'mouse') return;
-      var draggableHit = e.target && e.target.closest && e.target.closest('.note-card') &&
+      var draggableHit = e.target && e.target.closest && e.target.closest('.note-card, .k-card') &&
         !e.target.closest('textarea, .color-dot, .icon-btn');
       if (draggableHit) ring.classList.add('grab');
     });
@@ -656,9 +1041,15 @@
     raf();
   }
 
+  var initialView = 'notes';
+  try{ initialView = localStorage.getItem(VIEW_KEY) || 'notes'; }catch(e){}
+  setView(initialView);
+
   initCursor();
   load();
   render();
+  loadKanban();
+  renderKanban();
 })();
 </script>
 </body>
