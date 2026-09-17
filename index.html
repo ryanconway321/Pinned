@@ -94,6 +94,26 @@
   }
   .note-text::placeholder{ color:rgba(36,28,20,.4); }
 
+  .checklist{ display:flex; flex-direction:column; gap:3px; flex:none; width:100%; min-height:70px; }
+  .check-item{ display:flex; align-items:center; gap:6px; }
+  .check-box{ flex:0 0 auto; width:15px; height:15px; accent-color:#241C14; cursor:pointer; }
+  .check-text{
+    flex:1; min-width:0; border:none; background:transparent; outline:none;
+    font-family:"Kalam", cursive; font-size:15px; color:#241C14; padding:1px 0;
+  }
+  .check-text::placeholder{ color:rgba(36,28,20,.4); }
+  .check-item.done .check-text{ text-decoration:line-through; opacity:.5; }
+  .check-del{
+    flex:0 0 auto; width:16px; height:16px; border:none; background:transparent; color:rgba(36,28,20,.4);
+    cursor:pointer; font-size:11px; line-height:1; opacity:0; transition:opacity .12s; padding:0;
+  }
+  .check-item:hover .check-del{ opacity:1; }
+  .check-add{
+    align-self:flex-start; font-family:"Work Sans", sans-serif; font-size:12px; font-weight:600;
+    color:rgba(36,28,20,.45); background:transparent; border:none; cursor:pointer; padding:2px 0; margin-top:2px;
+  }
+  .check-add:hover{ color:rgba(36,28,20,.75); }
+
   .note-footer{
     position:absolute; left:14px; right:14px; bottom:12px;
     display:flex; align-items:center; justify-content:space-between;
@@ -365,7 +385,11 @@
     if (!notes || !notes.length){
       notes = [
         { id: genId(), color: 'yellow', text: 'Welcome to Pinned — drag any note around, or click it to edit.', rot: -2 },
-        { id: genId(), color: 'blue', text: 'Pick up milk\nCall the dentist\nReturn the package', rot: 1.5 },
+        { id: genId(), color: 'blue', text: '', checklist: true, items: [
+          { id: genId(), text: 'Pick up milk', done: false },
+          { id: genId(), text: 'Call the dentist', done: true },
+          { id: genId(), text: 'Return the package', done: false }
+        ], rot: 1.5 },
         { id: genId(), color: 'pink', text: "Someone's birthday is next week 🎂", rot: -1 }
       ];
     }
@@ -577,12 +601,57 @@
     board.style.minHeight = Math.max(floor, maxBottom + 60) + 'px';
   }
 
+  function toggleChecklist(id){
+    var n = notes.find(function(n){ return n.id === id; });
+    if (!n) return;
+    if (!n.checklist){
+      if (!n.items || !n.items.length){
+        var lines = (n.text || '').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+        n.items = lines.map(function(t){ return { id: genId(), text: t, done: false }; });
+        if (!n.items.length) n.items = [{ id: genId(), text: '', done: false }];
+      }
+      n.checklist = true;
+    } else {
+      n.text = (n.items || []).map(function(it){ return it.text; }).join('\n');
+      n.checklist = false;
+    }
+    n.updatedAt = Date.now();
+    save();
+    render();
+  }
+
+  function addChecklistItem(noteId){
+    var n = notes.find(function(n){ return n.id === noteId; });
+    if (!n) return;
+    if (!n.items) n.items = [];
+    var newItem = { id: genId(), text: '', done: false };
+    n.items.push(newItem);
+    n.updatedAt = Date.now();
+    save();
+    render();
+    var el = board.querySelector('[data-id="' + noteId + '"] .check-text[data-item-id="' + newItem.id + '"]');
+    if (el) el.focus();
+  }
+
+  function removeChecklistItem(noteId, itemId){
+    var n = notes.find(function(n){ return n.id === noteId; });
+    if (!n || !n.items) return;
+    n.items = n.items.filter(function(i){ return i.id !== itemId; });
+    n.updatedAt = Date.now();
+    save();
+    render();
+  }
+
+  function checklistIcon(){
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 12l3 3 7-7"/></svg>';
+  }
+
   function makeDraggable(card, note){
     var dragging = false, moved = false, pointerId = null;
     var startX = 0, startY = 0, origX = 0, origY = 0;
 
     card.addEventListener('pointerdown', function(e){
-      if (e.target.closest && e.target.closest('textarea, .color-dot, .icon-btn')) return;
+      if (e.target.closest && e.target.closest('textarea, input, .color-dot, .icon-btn, .check-del, .check-add')) return;
       dragging = true; moved = false; pointerId = e.pointerId;
       try{ card.setPointerCapture(pointerId); }catch(err){}
       startX = e.clientX; startY = e.clientY;
@@ -644,7 +713,19 @@
         '<div class="note-card" data-id="' + n.id + '" style="left:' + n.x + 'px; top:' + n.y + 'px; z-index:' + (n.z || 1) + '; transform:rotate(' + n.rot + 'deg); --rot:' + n.rot + 'deg; background:' + colorHex(n.color) + ';">' +
           (ago ? '<div class="time-badge">' + ago + '</div>' : '') +
           (floating ? '<div class="floating-badge">📌 floating</div>' : '') +
-          '<textarea class="note-text" placeholder="Type here…">' + escapeHtml(n.text) + '</textarea>' +
+          (n.checklist ?
+            ('<div class="checklist">' +
+              (n.items || []).map(function(it){
+                return '<div class="check-item' + (it.done ? ' done' : '') + '" data-item-id="' + it.id + '">' +
+                  '<input type="checkbox" class="check-box" data-item-id="' + it.id + '"' + (it.done ? ' checked' : '') + '>' +
+                  '<input type="text" class="check-text" data-item-id="' + it.id + '" value="' + escapeHtml(it.text) + '" placeholder="List item…">' +
+                  '<button type="button" class="check-del" data-item-id="' + it.id + '" aria-label="Remove item">✕</button>' +
+                '</div>';
+              }).join('') +
+              '<button type="button" class="check-add">+ item</button>' +
+            '</div>')
+            : ('<textarea class="note-text" placeholder="Type here…">' + escapeHtml(n.text) + '</textarea>')
+          ) +
           '<div class="note-footer">' +
             '<div class="color-dots">' +
               COLORS.map(function(c){
@@ -652,6 +733,7 @@
               }).join('') +
             '</div>' +
             '<div class="note-actions">' +
+              '<button type="button" class="icon-btn checklist-btn" aria-label="Toggle checklist" title="Checklist">' + checklistIcon() + '</button>' +
               '<button type="button" class="icon-btn float-btn" aria-label="Float this note" title="Float">' + floatIcon() + '</button>' +
               '<button type="button" class="icon-btn remove-btn" aria-label="Delete note" title="Delete">' + trashIcon() + '</button>' +
             '</div>' +
@@ -666,10 +748,42 @@
     Array.prototype.forEach.call(board.querySelectorAll('.note-card'), function(card){
       var id = card.getAttribute('data-id');
       var note = notes.find(function(n){ return n.id === id; });
-      var textarea = card.querySelector('.note-text');
-      autoGrow(textarea);
-      textarea.addEventListener('input', function(e){ updateNoteText(id, e.target.value); autoGrow(textarea); });
-      textarea.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+
+      if (note.checklist){
+        Array.prototype.forEach.call(card.querySelectorAll('.check-box'), function(cb){
+          cb.addEventListener('change', function(){
+            var it = (note.items || []).find(function(i){ return i.id === cb.getAttribute('data-item-id'); });
+            if (it){
+              it.done = cb.checked;
+              note.updatedAt = Date.now();
+              save();
+              cb.closest('.check-item').classList.toggle('done', it.done);
+            }
+          });
+        });
+        Array.prototype.forEach.call(card.querySelectorAll('.check-text'), function(ti){
+          ti.addEventListener('input', function(){
+            var it = (note.items || []).find(function(i){ return i.id === ti.getAttribute('data-item-id'); });
+            if (it){ it.text = ti.value; note.updatedAt = Date.now(); save(); }
+          });
+          ti.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+          ti.addEventListener('keydown', function(e){
+            if (e.key === 'Enter'){ e.preventDefault(); addChecklistItem(id); }
+          });
+        });
+        Array.prototype.forEach.call(card.querySelectorAll('.check-del'), function(db){
+          db.addEventListener('click', function(){ removeChecklistItem(id, db.getAttribute('data-item-id')); });
+        });
+        var addItemBtn = card.querySelector('.check-add');
+        if (addItemBtn) addItemBtn.addEventListener('click', function(){ addChecklistItem(id); });
+      } else {
+        var textarea = card.querySelector('.note-text');
+        autoGrow(textarea);
+        textarea.addEventListener('input', function(e){ updateNoteText(id, e.target.value); autoGrow(textarea); });
+        textarea.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+      }
+
+      card.querySelector('.checklist-btn').addEventListener('click', function(){ toggleChecklist(id); });
       Array.prototype.forEach.call(card.querySelectorAll('.color-dot'), function(dot){
         dot.addEventListener('click', function(){ updateNoteColor(id, dot.getAttribute('data-color')); });
       });
