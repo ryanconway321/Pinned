@@ -177,48 +177,6 @@
 
   .empty-hint{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; color:var(--ink-faint); font-size:13px; padding:40px 10px; }
 
-  .game-overlay{
-    position:fixed; inset:0; background:rgba(36,28,20,.55); z-index:2000;
-    display:flex; align-items:center; justify-content:center; padding:20px;
-    opacity:1; transition:opacity .2s;
-  }
-  .game-overlay.hide{ opacity:0; pointer-events:none; }
-  .game-panel{
-    background:var(--surface); border-radius:20px; box-shadow:var(--shadow);
-    width:min(480px, 100%); padding:20px; display:flex; flex-direction:column; gap:12px;
-  }
-  .game-header{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .game-title{ font-family:"Kalam", cursive; font-size:20px; font-weight:700; color:var(--ink); }
-  .game-sub{ font-size:12.5px; color:var(--ink-soft); margin-top:-8px; }
-  .game-close{
-    font-family:"Work Sans", sans-serif; font-weight:700; font-size:13px; color:var(--accent-ink);
-    background:var(--accent); border:none; border-radius:9px; padding:8px 15px; cursor:pointer; white-space:nowrap;
-  }
-  .game-close:hover{ filter:brightness(1.05); }
-
-  .build-palette{ display:flex; gap:6px; flex-wrap:wrap; }
-  .build-tool{
-    width:38px; height:38px; border-radius:8px; border:2px solid transparent; cursor:pointer; padding:0;
-    display:flex; align-items:center; justify-content:center; background:var(--surface-2);
-  }
-  .build-tool.active{ border-color:var(--accent); }
-  .build-tool:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-  .build-tool .swatch{ width:20px; height:20px; border-radius:3px; }
-
-  .build-grid{
-    display:grid; grid-template-columns:repeat(14, 1fr); grid-template-rows:repeat(9, 1fr);
-    gap:2px; background:var(--surface-2); border-radius:10px; padding:6px;
-    user-select:none; touch-action:none; aspect-ratio:14/9;
-  }
-  .build-cell{ background:var(--bg); border-radius:2px; cursor:pointer; }
-  .build-cell[data-piece="wall"]{
-    background:#C97B4A; background-image:linear-gradient(0deg, rgba(0,0,0,.14) 1px, transparent 1px);
-    background-size:100% 34%;
-  }
-  .build-cell[data-piece="floor"]{ background:#9C9080; }
-  .build-cell[data-piece="roof"]{ background:#E85D2C; clip-path:polygon(50% 0%, 100% 100%, 0% 100%); }
-  .build-cell[data-piece="ramp"]{ background:#8ECDF0; clip-path:polygon(0% 100%, 100% 0%, 100% 100%); }
-
   @media (prefers-reduced-motion: reduce){
     .note-card, .toast{ transition:none; }
     .note-card.crumpling{ animation:none; opacity:0; }
@@ -333,7 +291,10 @@
   </div>
 
   <section class="view-section" id="notesView">
-    <p class="sub">Quick notes, right where you'd stick them — no account, nothing to install. Drag them around the board, and on Chrome or Edge you can pop one into its own window that floats on top of everything else.</p>
+    <div class="k-toolbar">
+      <p class="sub">Quick notes, right where you'd stick them — no account, nothing to install. Drag them around the board, and on Chrome or Edge you can pop one into its own window that floats on top of everything else.</p>
+      <button type="button" class="k-share-btn" id="nShareBtn">🔗 Share notes</button>
+    </div>
     <div class="board" id="board"></div>
   </section>
 
@@ -351,18 +312,6 @@
 <div class="toast hide" id="toast">
   <span id="toastMsg"></span>
   <button type="button" class="toast-action" id="toastAction" hidden></button>
-</div>
-
-<div class="game-overlay hide" id="gameOverlay">
-  <div class="game-panel">
-    <div class="game-header">
-      <div class="game-title">🏗️ Free Build</div>
-      <button type="button" class="game-close" id="gameCloseBtn">Done</button>
-    </div>
-    <div class="game-sub">Checklist complete — build whatever you want!</div>
-    <div class="build-palette" id="buildPalette"></div>
-    <div class="build-grid" id="buildGrid"></div>
-  </div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
@@ -397,10 +346,8 @@
   var boardView = document.getElementById('boardView');
   var kanbanBoard = document.getElementById('kanbanBoard');
   var kShareBtn = document.getElementById('kShareBtn');
-  var gameOverlay = document.getElementById('gameOverlay');
-  var gameCloseBtn = document.getElementById('gameCloseBtn');
-  var buildPalette = document.getElementById('buildPalette');
-  var buildGrid = document.getElementById('buildGrid');
+  var nShareBtn = document.getElementById('nShareBtn');
+  var nShareBtn = document.getElementById('nShareBtn');
 
   var SAVE_KEY = 'pinned_notes_v2';
   var COLORS = [
@@ -432,8 +379,24 @@
   var roomRef = null;
   var kanbanSyncTimer = null;
   var lastLocalWriteJSON = null;
+  var notesRoomId = null;
+  var notesRoomRef = null;
+  var notesSyncTimer = null;
+  var notesLastLocalWriteJSON = null;
 
   function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+  function defaultNotes(){
+    return [
+      { id: genId(), color: 'yellow', text: 'Welcome to Pinned — drag any note around, or click it to edit.', rot: -2 },
+      { id: genId(), color: 'blue', text: '', checklist: true, items: [
+        { id: genId(), text: 'Pick up milk', done: false },
+        { id: genId(), text: 'Call the dentist', done: true },
+        { id: genId(), text: 'Return the package', done: false }
+      ], rot: 1.5 },
+      { id: genId(), color: 'pink', text: "Someone's birthday is next week 🎂", rot: -1 }
+    ];
+  }
 
   function load(){
     try{
@@ -447,15 +410,7 @@
       }catch(e){}
     }
     if (!notes || !notes.length){
-      notes = [
-        { id: genId(), color: 'yellow', text: 'Welcome to Pinned — drag any note around, or click it to edit.', rot: -2 },
-        { id: genId(), color: 'blue', text: '', checklist: true, items: [
-          { id: genId(), text: 'Pick up milk', done: false },
-          { id: genId(), text: 'Call the dentist', done: true },
-          { id: genId(), text: 'Return the package', done: false }
-        ], rot: 1.5 },
-        { id: genId(), color: 'pink', text: "Someone's birthday is next week 🎂", rot: -1 }
-      ];
+      notes = defaultNotes();
     }
     ensurePositions();
   }
@@ -476,6 +431,14 @@
 
   function save(){
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify(notes)); }catch(e){}
+    if (notesRoomId && notesRoomRef){
+      clearTimeout(notesSyncTimer);
+      notesSyncTimer = setTimeout(function(){
+        var json = JSON.stringify(notes);
+        notesLastLocalWriteJSON = json;
+        notesRoomRef.set(notes);
+      }, 250);
+    }
   }
   function genId(){ return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 
@@ -665,84 +628,6 @@
     board.style.minHeight = Math.max(floor, maxBottom + 60) + 'px';
   }
 
-  // ---------- Free Build mini-game (reward for finishing a checklist) ----------
-
-  var celebratedNoteIds = new Set();
-  var BUILD_TOOLS = [
-    { key: 'wall', label: 'Wall', color: '#C97B4A' },
-    { key: 'floor', label: 'Floor', color: '#9C9080' },
-    { key: 'roof', label: 'Roof', color: '#E85D2C' },
-    { key: 'ramp', label: 'Ramp', color: '#8ECDF0' },
-    { key: '', label: 'Eraser', color: '' }
-  ];
-  var BUILD_COLS = 14, BUILD_ROWS = 9;
-  var selectedTool = 'wall';
-  var painting = false;
-
-  function buildPaletteHtml(){
-    return BUILD_TOOLS.map(function(t){
-      var swatch = t.key ? ('<span class="swatch" style="background:' + t.color + ';"></span>')
-        : '<span class="swatch" style="border:2px dashed rgba(36,28,20,.4);"></span>';
-      return '<button type="button" class="build-tool' + (t.key === selectedTool ? ' active' : '') + '" data-tool="' + t.key + '" title="' + t.label + '" aria-label="' + t.label + '">' + swatch + '</button>';
-    }).join('');
-  }
-
-  function buildGridHtml(){
-    var html = '';
-    for (var y = 0; y < BUILD_ROWS; y++){
-      for (var x = 0; x < BUILD_COLS; x++){
-        html += '<div class="build-cell" data-x="' + x + '" data-y="' + y + '"></div>';
-      }
-    }
-    return html;
-  }
-
-  function paintCell(cell){
-    if (!cell || !cell.classList || !cell.classList.contains('build-cell')) return;
-    if (selectedTool){
-      cell.setAttribute('data-piece', selectedTool);
-    } else {
-      cell.removeAttribute('data-piece');
-    }
-  }
-
-  function initBuildUI(){
-    buildPalette.innerHTML = buildPaletteHtml();
-    Array.prototype.forEach.call(buildPalette.querySelectorAll('.build-tool'), function(btn){
-      btn.addEventListener('click', function(){
-        selectedTool = btn.getAttribute('data-tool');
-        Array.prototype.forEach.call(buildPalette.querySelectorAll('.build-tool'), function(b){ b.classList.toggle('active', b === btn); });
-      });
-    });
-
-    buildGrid.innerHTML = buildGridHtml();
-    buildGrid.addEventListener('pointerdown', function(e){
-      if (!e.target.classList || !e.target.classList.contains('build-cell')) return;
-      painting = true;
-      paintCell(e.target);
-      try{ buildGrid.setPointerCapture(e.pointerId); }catch(err){}
-    });
-    buildGrid.addEventListener('pointermove', function(e){
-      if (!painting) return;
-      var el = document.elementFromPoint(e.clientX, e.clientY);
-      paintCell(el);
-    });
-    function stopPainting(){ painting = false; }
-    buildGrid.addEventListener('pointerup', stopPainting);
-    buildGrid.addEventListener('pointercancel', stopPainting);
-  }
-
-  function launchBuildMode(){
-    selectedTool = 'wall';
-    Array.prototype.forEach.call(buildPalette.querySelectorAll('.build-tool'), function(b){
-      b.classList.toggle('active', b.getAttribute('data-tool') === 'wall');
-    });
-    Array.prototype.forEach.call(buildGrid.querySelectorAll('.build-cell'), function(c){ c.removeAttribute('data-piece'); });
-    gameOverlay.classList.remove('hide');
-  }
-
-  gameCloseBtn.addEventListener('click', function(){ gameOverlay.classList.add('hide'); });
-
   function toggleChecklist(id){
     var n = notes.find(function(n){ return n.id === id; });
     if (!n) return;
@@ -900,16 +785,6 @@
               note.updatedAt = Date.now();
               save();
               cb.closest('.check-item').classList.toggle('done', it.done);
-
-              var allDone = note.items.length > 0 && note.items.every(function(i){ return i.done; });
-              if (allDone){
-                if (!celebratedNoteIds.has(id)){
-                  celebratedNoteIds.add(id);
-                  launchBuildMode();
-                }
-              } else {
-                celebratedNoteIds.delete(id);
-              }
             }
           });
         });
@@ -1458,6 +1333,72 @@
 
   if (kShareBtn) kShareBtn.addEventListener('click', shareBoard);
 
+  // ---------- Sharing notes (real-time synced corkboard) ----------
+
+  function updateNotesShareBtn(){
+    if (!nShareBtn) return;
+    if (notesRoomId){
+      nShareBtn.textContent = '🟢 Copy link';
+      nShareBtn.classList.add('live');
+      nShareBtn.title = 'These notes are live — copy the link to invite others';
+    } else {
+      nShareBtn.textContent = '🔗 Share notes';
+      nShareBtn.classList.remove('live');
+      nShareBtn.title = 'Turn this into a shared board others can edit live';
+    }
+  }
+
+  function connectNotesRoom(id, seedIfEmpty){
+    notesRoomId = id;
+    notesRoomRef = firebase.database().ref('noteBoards/' + id);
+    notesRoomRef.on('value', function(snap){
+      var data = snap.val();
+      if (Array.isArray(data)){
+        var json = JSON.stringify(data);
+        if (json === notesLastLocalWriteJSON) return;
+        notes = data;
+        ensurePositions();
+        render();
+      } else if (seedIfEmpty){
+        notes = seedIfEmpty;
+        ensurePositions();
+        notesLastLocalWriteJSON = JSON.stringify(notes);
+        notesRoomRef.set(notes);
+        render();
+      }
+    }, function(err){
+      showToast('Could not connect to the shared notes (' + (err && err.message ? err.message : 'error') + ').');
+    });
+    updateNotesShareBtn();
+  }
+
+  function copyNotesShareLink(){
+    var link = window.location.href;
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(link).then(function(){
+        showToast('Link copied — anyone who opens it can edit these notes live.');
+      }).catch(function(){
+        showToast('Share this link: ' + link);
+      });
+    } else {
+      showToast('Share this link: ' + link);
+    }
+  }
+
+  function shareNotes(){
+    if (!firebaseReady){ showToast('Sharing needs an internet connection.'); return; }
+    if (!notesRoomId){
+      var newId = genRoomId();
+      var url = new URL(window.location.href);
+      url.searchParams.set('notesRoom', newId);
+      window.history.replaceState(null, '', url.toString());
+      connectNotesRoom(newId, notes);
+    }
+    copyNotesShareLink();
+  }
+
+  if (nShareBtn) nShareBtn.addEventListener('click', shareNotes);
+
   // ---------- View switching ----------
 
   var VIEW_KEY = 'pinned_active_view';
@@ -1482,8 +1423,14 @@
   try{ initialView = localStorage.getItem(VIEW_KEY) || 'notes'; }catch(e){}
   setView(initialView);
 
-  initBuildUI();
-  load();
+  var urlNotesRoom = null;
+  try{ urlNotesRoom = new URLSearchParams(window.location.search).get('notesRoom'); }catch(e){}
+  if (urlNotesRoom && firebaseReady){
+    notes = [];
+    connectNotesRoom(urlNotesRoom, defaultNotes());
+  } else {
+    load();
+  }
   render();
 
   var urlRoom = null;
